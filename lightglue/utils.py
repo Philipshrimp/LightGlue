@@ -128,6 +128,17 @@ def load_image(path: Path, resize: int = None, **kwargs) -> torch.Tensor:
     return numpy_image_to_torch(image)
 
 
+def load_and_mask_image(path: Path, resize: int = None, **kwargs) -> torch.Tensor:
+    image = read_image(path)
+    if resize is not None:
+        image, _ = resize_image(image, resize, **kwargs)
+
+    h, w = image.shape[:2]
+    image[h//2:, :] = 0
+    
+    return numpy_image_to_torch(image)
+
+
 class Extractor(torch.nn.Module):
     def __init__(self, **conf):
         super().__init__()
