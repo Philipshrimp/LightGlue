@@ -6,7 +6,9 @@ from typing import Callable, List, Optional, Tuple, Union
 import cv2
 import kornia
 import numpy as np
+from PIL import Image
 import torch
+import time
 
 
 class ImagePreprocessor:
@@ -82,6 +84,24 @@ def read_image(path: Path, grayscale: bool = False) -> np.ndarray:
     return image
 
 
+def read_image_pil(path: Path, grayscale: bool = False) -> np.ndarray:
+    """Read an image from path as RGB or grayscale"""
+    if not Path(path).exists():
+        raise FileNotFoundError(f"No image at path {path}.")
+    
+    # OpenCV 대신 PIL 사용
+    from PIL import Image
+    mode = 'L' if grayscale else 'RGB'
+    image = Image.open(path).convert(mode)
+    
+    # NumPy 배열로 변환
+    image = np.array(image)
+    
+    if not grayscale:
+        image = image[..., ::-1]  # RGB로 변환
+    return image
+
+
 def numpy_image_to_torch(image: np.ndarray) -> torch.Tensor:
     """Normalize the image tensor and reorder the dimensions."""
     if image.ndim == 3:
@@ -120,6 +140,40 @@ def resize_image(
     }[interp]
     return cv2.resize(image, (w_new, h_new), interpolation=mode), scale
 
+def resize_image_pil(
+    image: np.ndarray,
+    size: Union[List[int], int],
+    fn: str = "max",
+    interp: Optional[str] = "area",
+) -> np.ndarray:
+    """Resize an image to a fixed size, or according to max or min edge."""
+    from PIL import Image
+
+    h, w = image.shape[:2]
+    fn = {"max": max, "min": min}[fn]
+    
+    if isinstance(size, int):
+        scale = size / fn(h, w)
+        h_new, w_new = int(round(h * scale)), int(round(w * scale))
+        scale = (w_new / w, h_new / h)
+    elif isinstance(size, (tuple, list)):
+        h_new, w_new = size
+        scale = (w_new / w, h_new / h)
+    else:
+        raise ValueError(f"Incorrect new size: {size}")
+
+    pil_image = Image.fromarray(image)
+    if interp == "linear":
+        pil_image = pil_image.resize((w_new, h_new), Image.LANCZOS)
+    elif interp == "cubic":
+        pil_image = pil_image.resize((w_new, h_new), Image.BICUBIC)
+    elif interp == "nearest":
+        pil_image = pil_image.resize((w_new, h_new), Image.NEAREST)
+    elif interp == "area":
+        pil_image = pil_image.resize((w_new, h_new), Image.ANTIALIAS)
+
+    return np.array(pil_image), scale
+
 
 def load_image(path: Path, resize: int = None, **kwargs) -> torch.Tensor:
     image = read_image(path)
@@ -129,9 +183,9 @@ def load_image(path: Path, resize: int = None, **kwargs) -> torch.Tensor:
 
 
 def load_and_mask_image(path: Path, resize: int = None, **kwargs) -> torch.Tensor:
-    image = read_image(path)
+    image = read_image_pil(path)
     if resize is not None:
-        image, _ = resize_image(image, resize, **kwargs)
+        image, _ = resize_image_pil(image, resize, **kwargs)
 
     h, w = image.shape[:2]
     image[h//2:, :] = 0
